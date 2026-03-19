@@ -73,7 +73,7 @@ public class CanvasSetup {
         scanner.close();
     }
 
-    private static String extractBaseUrl(String url) {
+    static String extractBaseUrl(String url) {
         try {
             URI uri = URI.create(url);
             String base = uri.getScheme() + "://" + uri.getHost();
@@ -87,7 +87,7 @@ public class CanvasSetup {
         }
     }
 
-    private static int countOccurrences(String text, String target) {
+    static int countOccurrences(String text, String target) {
         int count = 0;
         int index = 0;
         while ((index = text.indexOf(target, index)) != -1) {
@@ -97,7 +97,7 @@ public class CanvasSetup {
         return count;
     }
 
-    private static void writeEnvFile(String baseUrl, String feedUrl) throws IOException {
+    static void writeEnvFile(String baseUrl, String feedUrl) throws IOException {
         Path path = Paths.get(ENV_FILE);
         StringBuilder content = new StringBuilder();
 
