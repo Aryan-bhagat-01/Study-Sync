@@ -11,6 +11,7 @@ Study Sync is a Java-based tool that connects a user’s Canvas calendar feed to
 Clone the repository:
 
 git clone https://github.com/Aryan-bhagat-01/Study-Sync.git
+
 cd Study-Sync
 
 ## Build
