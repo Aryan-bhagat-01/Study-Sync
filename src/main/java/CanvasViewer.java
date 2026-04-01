@@ -36,26 +36,25 @@ public class CanvasViewer {
     // ── Fetch ────────────────────────────────────────────────────────────────
 
     static String fetchFeed(String feedUrl) throws Exception {
-        try (HttpClient client = HttpClient.newBuilder()
+        HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
-                .build()) {
+                .build();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(feedUrl))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Accept", "text/calendar")
-                    .GET()
-                    .build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(feedUrl))
+                .timeout(Duration.ofSeconds(15))
+                .header("Accept", "text/calendar")
+                .GET()
+                .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
-            if (response.statusCode() != 200) {
-                System.err.println("Error: Canvas returned HTTP " + response.statusCode());
-                System.exit(1);
-            }
-
-            return response.body();
+        if (response.statusCode() != 200) {
+            System.err.println("Error: Canvas returned HTTP " + response.statusCode());
+            System.exit(1);
         }
+
+        return response.body();
     }
 
     // ── Parse ────────────────────────────────────────────────────────────────
@@ -71,7 +70,6 @@ public class CanvasViewer {
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
 
-            // iCal long lines are folded with a leading space — unfold them
             if (line.startsWith(" ") && current != null) {
                 if (inDesc) descBuffer.append(line.trim());
                 continue;
@@ -109,20 +107,17 @@ public class CanvasViewer {
     }
 
     static LocalDateTime parseDate(String raw) {
-        // Strip TZID prefix if present, e.g. "TZID=America/New_York:20240915T235900"
         if (raw.contains(":")) {
             raw = raw.substring(raw.lastIndexOf(':') + 1);
         }
         try {
             if (raw.endsWith("Z")) {
-                // UTC time
                 return LocalDateTime.parse(raw.replace("Z", ""),
                         DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss"));
             } else if (raw.contains("T")) {
                 return LocalDateTime.parse(raw,
                         DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss"));
             } else {
-                // All-day date (e.g. 20240915)
                 LocalDate date = LocalDate.parse(raw, DateTimeFormatter.ofPattern("yyyyMMdd"));
                 return date.atStartOfDay();
             }
@@ -134,10 +129,10 @@ public class CanvasViewer {
     static String cleanDescription(String raw) {
         if (raw == null || raw.isBlank()) return "";
         return raw
-                .replace("\\n", " ")   // iCal escaped newlines
+                .replace("\\n", " ")
                 .replace("\\,", ",")
                 .replace("\\;", ";")
-                .replaceAll("https?://\\S+", "")  // strip embedded URLs (shown separately)
+                .replaceAll("https?://\\S+", "")
                 .trim();
     }
 
@@ -147,8 +142,8 @@ public class CanvasViewer {
         DateTimeFormatter display = DateTimeFormatter.ofPattern("MMM dd, yyyy  hh:mm a");
         LocalDateTime now = LocalDateTime.now();
 
-        String divider  = "─".repeat(60);
-        String header   = "─".repeat(22) + "  CANVAS ASSIGNMENTS  " + "─".repeat(18);
+        String divider = "-".repeat(60);
+        String header  = "-".repeat(22) + "  CANVAS ASSIGNMENTS  " + "-".repeat(18);
 
         System.out.println(header);
         System.out.printf("  %-3s  %-32s  %s%n", "#", "Assignment", "Due Date");
@@ -157,15 +152,15 @@ public class CanvasViewer {
         int count = 0;
         for (Assignment a : assignments) {
             count++;
-            String title    = truncate(a.title != null ? a.title : "(No title)", 30);
-            String dueStr   = a.dueDate != null ? a.dueDate.format(display) : "No due date";
-            String urgency  = getUrgencyTag(a.dueDate, now);
+            String title   = truncate(a.title != null ? a.title : "(No title)", 30);
+            String dueStr  = a.dueDate != null ? a.dueDate.format(display) : "No due date";
+            String urgency = getUrgencyTag(a.dueDate, now);
 
             System.out.printf("  %-3d  %-32s  %s  %s%n", count, title, dueStr, urgency);
 
             if (a.description != null && !a.description.isBlank()) {
                 String desc = truncate(a.description, 55);
-                System.out.printf("       └─ %s%n", desc);
+                System.out.printf("       -> %s%n", desc);
             }
         }
 
@@ -176,15 +171,15 @@ public class CanvasViewer {
     static String getUrgencyTag(LocalDateTime due, LocalDateTime now) {
         if (due == null) return "";
         long days = Duration.between(now, due).toDays();
-        if (due.isBefore(now))   return "[OVERDUE]";
-        if (days == 0)           return "[DUE TODAY]";
-        if (days == 1)           return "[DUE TOMORROW]";
-        if (days <= 7)           return "[THIS WEEK]";
+        if (due.isBefore(now)) return "[OVERDUE]";
+        if (days == 0)         return "[DUE TODAY]";
+        if (days == 1)         return "[DUE TOMORROW]";
+        if (days <= 7)         return "[THIS WEEK]";
         return "";
     }
 
     static String truncate(String s, int max) {
-        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
+        return s.length() <= max ? s : s.substring(0, max - 1) + "...";
     }
 
     // ── .env reader ──────────────────────────────────────────────────────────
