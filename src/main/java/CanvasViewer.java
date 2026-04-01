@@ -210,25 +210,3 @@ public class CanvasViewer {
         String url;
     }
 }
-```
-
-**What it does:**
-
-- Reads `CANVAS_FEED_URL` from your `.env` (no re-entering the URL)
-- Fetches the live iCal feed from Canvas
-- Parses every `VEVENT` block for title, due date, description, and URL
-- Handles iCal quirks like folded long lines, UTC timestamps, all-day dates, and escaped characters
-- Sorts everything by due date, earliest first
-- Tags assignments as `[OVERDUE]`, `[DUE TODAY]`, `[DUE TOMORROW]`, or `[THIS WEEK]`
-
-**Example terminal output:**
-```
-──────────────────────  CANVAS ASSIGNMENTS  ──────────────────
-  #    Assignment                         Due Date
-────────────────────────────────────────────────────────────
-  1    Lab 3 - Sorting Algorithms         Oct 01, 2025  11:59 PM  [DUE TODAY]
-       └─ Submit via Gradescope
-  2    Homework 4                         Oct 03, 2025  11:59 PM  [THIS WEEK]
-  3    Midterm Exam                       Oct 08, 2025  09:00 AM
-────────────────────────────────────────────────────────────
-  3 assignment(s) total
