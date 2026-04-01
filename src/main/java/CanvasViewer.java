@@ -14,7 +14,7 @@ public class CanvasViewer {
         String feedUrl = readEnvValue("CANVAS_FEED_URL");
 
         if (feedUrl == null || feedUrl.isBlank()) {
-            System.err.println("Error: CANVAS_FEED_URL not found in .env");
+            System.err.println("Error: CANVAS_FEED_URL not found in .env or environment");
             System.err.println("Run CanvasSetup first to save your feed URL.");
             System.exit(1);
         }
@@ -185,9 +185,13 @@ public class CanvasViewer {
     // ── .env reader ──────────────────────────────────────────────────────────
 
     static String readEnvValue(String key) throws IOException {
+        // Check system environment variables first (for Railway/hosting)
+        String envVal = System.getenv(key);
+        if (envVal != null && !envVal.isBlank()) return envVal;
+
+        // Fall back to .env file (for local development)
         Path path = Paths.get(ENV_FILE);
         if (!Files.exists(path)) return null;
-
         for (String line : Files.readAllLines(path)) {
             if (line.startsWith(key + "=")) {
                 return line.substring(key.length() + 1).trim();

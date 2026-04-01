@@ -27,11 +27,11 @@ public class StudySyncBot extends ListenerAdapter {
         String channelId = readEnvValue("DISCORD_CHANNEL_ID");
 
         if (token == null || token.isBlank()) {
-            System.err.println("Error: DISCORD_TOKEN not found in .env");
+            System.err.println("Error: DISCORD_TOKEN not found in .env or environment");
             System.exit(1);
         }
         if (channelId == null || channelId.isBlank()) {
-            System.err.println("Error: DISCORD_CHANNEL_ID not found in .env");
+            System.err.println("Error: DISCORD_CHANNEL_ID not found in .env or environment");
             System.exit(1);
         }
 
@@ -42,7 +42,6 @@ public class StudySyncBot extends ListenerAdapter {
 
         jda.awaitReady();
 
-        // Register slash commands
         jda.updateCommands().addCommands(
                 Commands.slash("setup", "Link your Canvas iCal feed URL")
                         .addOption(OptionType.STRING, "url", "Your Canvas iCal feed URL (.ics)", true),
@@ -62,8 +61,6 @@ public class StudySyncBot extends ListenerAdapter {
         startScheduler(channelId, frequency);
     }
 
-    // ── Slash Command Handler ─────────────────────────────────────────────────
-
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
         String channelId;
@@ -78,10 +75,7 @@ public class StudySyncBot extends ListenerAdapter {
 
             case "setup" -> {
                 String url = event.getOption("url").getAsString().trim();
-
-                if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    url = "https://" + url;
-                }
+                if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
 
                 String path;
                 try {
@@ -97,22 +91,17 @@ public class StudySyncBot extends ListenerAdapter {
                 }
 
                 event.reply("Verifying your Canvas feed...").queue();
-
                 final String finalUrl = url;
                 try {
                     String icalData = CanvasViewer.fetchFeed(finalUrl);
                     if (!icalData.contains("BEGIN:VCALENDAR")) {
-                        event.getHook().editOriginal("That URL didn't return a valid iCal feed. Make sure you copied the full link from Canvas Calendar.").queue();
+                        event.getHook().editOriginal("That URL didn't return a valid iCal feed.").queue();
                         return;
                     }
-
                     int count = countOccurrences(icalData, "BEGIN:VEVENT");
                     writeEnvValue("CANVAS_FEED_URL", finalUrl);
-                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s). The bot will now post assignments every hour.").queue();
-
-                    int frequency = getFrequency();
-                    startScheduler(channelId, frequency);
-
+                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s).").queue();
+                    startScheduler(channelId, getFrequency());
                 } catch (Exception e) {
                     event.getHook().editOriginal("Could not reach that URL. Make sure it's correct and try again.").queue();
                 }
@@ -154,19 +143,15 @@ public class StudySyncBot extends ListenerAdapter {
                         event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
                         return;
                     }
-
                     LocalDate today = LocalDate.now();
                     List<CanvasViewer.Assignment> dueToday = assignments.stream()
                             .filter(a -> a.dueDate != null && a.dueDate.toLocalDate().equals(today))
                             .collect(Collectors.toList());
-
                     if (dueToday.isEmpty()) {
                         event.getHook().editOriginal("Nothing due today! \uD83C\uDF89").queue();
                         return;
                     }
-
                     event.getHook().editOriginal(buildAssignmentList(dueToday, "\uD83D\uDCC5 **Due Today**")).queue();
-
                 } catch (Exception e) {
                     event.getHook().editOriginal("Error fetching assignments: " + e.getMessage()).queue();
                 }
@@ -180,16 +165,13 @@ public class StudySyncBot extends ListenerAdapter {
                         event.reply("No assignments to hide.").setEphemeral(true).queue();
                         return;
                     }
-
                     if (number < 1 || number > assignments.size()) {
-                        event.reply("Invalid number. Use `/assignments` to see the list and pick a valid number.").setEphemeral(true).queue();
+                        event.reply("Invalid number. Use `/assignments` to see the list.").setEphemeral(true).queue();
                         return;
                     }
-
                     CanvasViewer.Assignment toHide = assignments.get(number - 1);
                     hideAssignment(toHide.title);
-                    event.reply("Hidden **" + toHide.title + "** from the bot. Use `/unhide` to restore all hidden assignments.").queue();
-
+                    event.reply("Hidden **" + toHide.title + "**. Use `/unhide` to restore it.").queue();
                 } catch (Exception e) {
                     event.reply("Error hiding assignment: " + e.getMessage()).setEphemeral(true).queue();
                 }
@@ -197,8 +179,7 @@ public class StudySyncBot extends ListenerAdapter {
 
             case "unhide" -> {
                 try {
-                    Path path = Paths.get(HIDDEN_FILE);
-                    Files.deleteIfExists(path);
+                    Files.deleteIfExists(Paths.get(HIDDEN_FILE));
                     event.reply("All hidden assignments have been restored!").queue();
                 } catch (IOException e) {
                     event.reply("Error restoring assignments.").setEphemeral(true).queue();
@@ -208,7 +189,7 @@ public class StudySyncBot extends ListenerAdapter {
             case "frequency" -> {
                 int hours = (int) event.getOption("hours").getAsLong();
                 if (hours < 1 || hours > 168) {
-                    event.reply("Please enter a value between 1 and 168 hours (1 week).").setEphemeral(true).queue();
+                    event.reply("Please enter a value between 1 and 168 hours.").setEphemeral(true).queue();
                     return;
                 }
                 try {
@@ -222,21 +203,15 @@ public class StudySyncBot extends ListenerAdapter {
         }
     }
 
-    // ── Scheduler ─────────────────────────────────────────────────────────────
-
     static void startScheduler(String channelId, int frequencyHours) {
         if (currentTask != null) currentTask.cancel(false);
-
         currentTask = scheduler.scheduleAtFixedRate(() -> {
             try {
                 List<CanvasViewer.Assignment> assignments = getVisibleAssignments();
                 if (assignments == null || assignments.isEmpty()) return;
 
                 TextChannel channel = jda.getTextChannelById(channelId);
-                if (channel == null) {
-                    System.err.println("Error: Channel not found.");
-                    return;
-                }
+                if (channel == null) { System.err.println("Error: Channel not found."); return; }
 
                 CanvasViewer.Assignment next = assignments.get(0);
                 DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
@@ -249,24 +224,19 @@ public class StudySyncBot extends ListenerAdapter {
                         (urgency.isEmpty() ? "" : "⚠️ " + urgency);
 
                 channel.sendMessage(message).queue();
-                System.out.println("Posted assignment update: " + next.title);
-
+                System.out.println("Posted: " + next.title);
             } catch (Exception e) {
                 System.err.println("Error posting assignment: " + e.getMessage());
             }
         }, 0, frequencyHours, TimeUnit.HOURS);
     }
 
-    // ── Assignment Helpers ────────────────────────────────────────────────────
-
     static List<CanvasViewer.Assignment> getVisibleAssignments() throws Exception {
         String feedUrl = readEnvValue("CANVAS_FEED_URL");
         if (feedUrl == null || feedUrl.isBlank()) return null;
-
         String icalData = CanvasViewer.fetchFeed(feedUrl);
         List<CanvasViewer.Assignment> assignments = CanvasViewer.parseAssignments(icalData);
         Set<String> hidden = loadHiddenAssignments();
-
         assignments.removeIf(a -> a.title != null && hidden.contains(a.title));
         assignments.sort(Comparator.comparing(a -> a.dueDate != null ? a.dueDate : LocalDateTime.MAX));
         return assignments;
@@ -280,16 +250,11 @@ public class StudySyncBot extends ListenerAdapter {
             String title  = a.title != null ? a.title : "Untitled";
             String due    = a.dueDate != null ? a.dueDate.format(fmt) : "No due date";
             String urgent = getUrgencyTag(a.dueDate);
-
             sb.append("**").append(num++).append(". ").append(title).append("**\n");
             sb.append("\uD83D\uDCC5 ").append(due);
             if (!urgent.isEmpty()) sb.append("  ⚠️ ").append(urgent);
             sb.append("\n\n");
-
-            if (sb.length() > 1800) {
-                sb.append("*(and more...)*");
-                break;
-            }
+            if (sb.length() > 1800) { sb.append("*(and more...)*"); break; }
         }
         return sb.toString();
     }
@@ -306,8 +271,6 @@ public class StudySyncBot extends ListenerAdapter {
         if (!Files.exists(path)) return new HashSet<>();
         return new HashSet<>(Files.readAllLines(path));
     }
-
-    // ── General Helpers ───────────────────────────────────────────────────────
 
     static String getUrgencyTag(LocalDateTime due) {
         if (due == null) return "";
@@ -329,20 +292,20 @@ public class StudySyncBot extends ListenerAdapter {
 
     static int countOccurrences(String text, String target) {
         int count = 0, index = 0;
-        while ((index = text.indexOf(target, index)) != -1) {
-            count++;
-            index += target.length();
-        }
+        while ((index = text.indexOf(target, index)) != -1) { count++; index += target.length(); }
         return count;
     }
 
     static String readEnvValue(String key) throws IOException {
+        // Check system environment variables first (for Railway/hosting)
+        String envVal = System.getenv(key);
+        if (envVal != null && !envVal.isBlank()) return envVal;
+
+        // Fall back to .env file (for local development)
         Path path = Paths.get(".env");
         if (!Files.exists(path)) return null;
         for (String line : Files.readAllLines(path)) {
-            if (line.startsWith(key + "=")) {
-                return line.substring(key.length() + 1).trim();
-            }
+            if (line.startsWith(key + "=")) return line.substring(key.length() + 1).trim();
         }
         return null;
     }
