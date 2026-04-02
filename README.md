@@ -29,5 +29,9 @@ Run unit tests:
 
 mvn test
 
+## Data Generation
+javac StudySyncData.java
+java StudySyncData.java
+
 ## Continuous Integration
 This project uses GitHub Actions for continuous integration. The project is automatically built and tested on each push to the repository. You can view CI results in the "Actions" tab on GitHub.
