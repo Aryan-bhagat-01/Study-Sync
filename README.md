@@ -33,7 +33,7 @@ Run unit tests:
 
 mvn test
 
-## Data Generation
+## Statistic Analysis (generates figures)
 javac StudySyncData.java
 
 java StudySyncData.java
