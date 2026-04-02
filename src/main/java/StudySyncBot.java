@@ -67,6 +67,7 @@ public class StudySyncBot extends ListenerAdapter {
         }
     }
 
+    // ── Slash Command Handler ─────────────────────────────────────────────────
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -265,6 +266,7 @@ public class StudySyncBot extends ListenerAdapter {
         }
     }
 
+    // ── Scheduler ─────────────────────────────────────────────────────────────
 
     static void startScheduler(String guildId, String channelId, int frequencyHours) {
         ScheduledFuture<?> existing = tasks.get(guildId);
@@ -305,6 +307,8 @@ public class StudySyncBot extends ListenerAdapter {
         tasks.put(guildId, task);
     }
 
+    // ── Assignment Helpers ────────────────────────────────────────────────────
+
     static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
         if (config.feedUrl == null || config.feedUrl.isBlank()) return null;
         String icalData = CanvasViewer.fetchFeed(config.feedUrl);
@@ -341,6 +345,7 @@ public class StudySyncBot extends ListenerAdapter {
         return sb.toString();
     }
 
+    // ── Per-Server Data ───────────────────────────────────────────────────────
 
     static class ServerConfig {
         String feedUrl     = null;
@@ -398,6 +403,7 @@ public class StudySyncBot extends ListenerAdapter {
         }
     }
 
+    // ── General Helpers ───────────────────────────────────────────────────────
 
     static String getUrgencyTag(LocalDateTime due) {
         if (due == null) return "";
