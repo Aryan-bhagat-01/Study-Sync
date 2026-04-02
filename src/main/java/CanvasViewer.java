@@ -33,7 +33,6 @@ public class CanvasViewer {
         printAssignments(assignments);
     }
 
-    // ── Fetch ────────────────────────────────────────────────────────────────
 
     static String fetchFeed(String feedUrl) throws Exception {
         HttpClient client = HttpClient.newBuilder()
@@ -57,7 +56,6 @@ public class CanvasViewer {
         return response.body();
     }
 
-    // ── Parse ────────────────────────────────────────────────────────────────
 
     static List<Assignment> parseAssignments(String icalData) {
         List<Assignment> assignments = new ArrayList<>();
@@ -136,7 +134,6 @@ public class CanvasViewer {
                 .trim();
     }
 
-    // ── Display ──────────────────────────────────────────────────────────────
 
     static void printAssignments(List<Assignment> assignments) {
         DateTimeFormatter display = DateTimeFormatter.ofPattern("MMM dd, yyyy  hh:mm a");
@@ -182,7 +179,6 @@ public class CanvasViewer {
         return s.length() <= max ? s : s.substring(0, max - 1) + "...";
     }
 
-    // ── .env reader ──────────────────────────────────────────────────────────
 
     static String readEnvValue(String key) throws IOException {
         // Check system environment variables first (for Railway/hosting)
@@ -200,7 +196,6 @@ public class CanvasViewer {
         return null;
     }
 
-    // ── Model ────────────────────────────────────────────────────────────────
 
     static class Assignment {
         String title;

@@ -2,6 +2,7 @@ import net.dv8tion.jda.api.*;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.events.interaction.command.SlashCommandInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.commands.OptionMapping;
 import net.dv8tion.jda.api.interactions.commands.OptionType;
 import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -44,9 +45,12 @@ public class StudySyncBot extends ListenerAdapter {
                 Commands.slash("setup", "Link your Canvas iCal feed URL to this server")
                         .addOption(OptionType.STRING, "url", "Your Canvas iCal feed URL (.ics)", true),
                 Commands.slash("unlink", "Remove this server's linked Canvas iCal feed"),
-                Commands.slash("assignments", "Show all upcoming assignments"),
+                Commands.slash("assignments", "Show upcoming assignments")
+                        .addOption(OptionType.INTEGER, "count", "How many assignments to show (default: 10)", false),
                 Commands.slash("today", "Show assignments due today"),
-                Commands.slash("edit", "Hide an assignment by number (use /assignments to see numbers)")
+                Commands.slash("upcoming", "Show assignments due this week"),
+                Commands.slash("overdue", "Show overdue assignments"),
+                Commands.slash("delete", "Hide an assignment by number (use /assignments to see numbers)")
                         .addOption(OptionType.INTEGER, "number", "Assignment number to hide", true),
                 Commands.slash("unhide", "Restore all hidden assignments"),
                 Commands.slash("frequency", "Change how often the bot posts assignments (in hours)")
@@ -103,14 +107,11 @@ public class StudySyncBot extends ListenerAdapter {
                         return;
                     }
                     int count = countOccurrences(icalData, "BEGIN:VEVENT");
-
                     config.feedUrl   = finalUrl;
                     config.channelId = channelId;
                     saveAllServerData();
-
-                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s). I'll post updates in this channel every **" + config.frequencyHours + "** hour(s).").queue();
+                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s). I'll post the most upcoming assignment in this channel every **" + config.frequencyHours + "** hour(s).").queue();
                     startScheduler(guildId, channelId, config.frequencyHours);
-
                 } catch (Exception e) {
                     event.getHook().editOriginal("Could not reach that URL. Make sure it's correct and try again.").queue();
                 }
@@ -121,23 +122,25 @@ public class StudySyncBot extends ListenerAdapter {
                     event.reply("No Canvas feed is linked to this server.").setEphemeral(true).queue();
                     return;
                 }
-                // Clear only this server's data
                 config.feedUrl   = null;
                 config.channelId = null;
                 config.hiddenAssignments.clear();
                 saveAllServerData();
 
-                // Stop this server's scheduler
                 ScheduledFuture<?> task = tasks.remove(guildId);
                 if (task != null) task.cancel(false);
-
                 event.reply("Canvas feed unlinked for this server. The bot will stop posting assignments.").queue();
             }
 
             case "assignments" -> {
+                OptionMapping countOption = event.getOption("count");
+                int limit = countOption != null ? (int) countOption.getAsLong() : 10;
+                if (limit < 1) limit = 1;
+                if (limit > 50) limit = 50;
+
                 event.reply("Fetching your assignments...").queue();
                 try {
-                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
+                    List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                     if (assignments == null) {
                         event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
                         return;
@@ -146,7 +149,9 @@ public class StudySyncBot extends ListenerAdapter {
                         event.getHook().editOriginal("No upcoming assignments found!").queue();
                         return;
                     }
-                    event.getHook().editOriginal(buildAssignmentList(assignments, "📚 **Upcoming Assignments**")).queue();
+                    List<CanvasViewer.Assignment> limited = assignments.subList(0, Math.min(limit, assignments.size()));
+                    String header = "📚 **Upcoming Assignments** (showing " + limited.size() + " of " + assignments.size() + ")";
+                    event.getHook().editOriginal(buildAssignmentList(limited, header)).queue();
                 } catch (Exception e) {
                     event.getHook().editOriginal("Error fetching assignments: " + e.getMessage()).queue();
                 }
@@ -155,7 +160,7 @@ public class StudySyncBot extends ListenerAdapter {
             case "today" -> {
                 event.reply("Checking what's due today...").queue();
                 try {
-                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
+                    List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                     if (assignments == null) {
                         event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
                         return;
@@ -174,10 +179,55 @@ public class StudySyncBot extends ListenerAdapter {
                 }
             }
 
-            case "edit" -> {
-                int number = (int) event.getOption("number").getAsLong();
+            case "upcoming" -> {
+                event.reply("Checking what's due this week...").queue();
+                try {
+                    List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
+                    if (assignments == null) {
+                        event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
+                        return;
+                    }
+                    LocalDateTime now = LocalDateTime.now();
+                    LocalDateTime weekEnd = now.plusDays(7);
+                    List<CanvasViewer.Assignment> thisWeek = assignments.stream()
+                            .filter(a -> a.dueDate != null && a.dueDate.isAfter(now) && a.dueDate.isBefore(weekEnd))
+                            .collect(Collectors.toList());
+                    if (thisWeek.isEmpty()) {
+                        event.getHook().editOriginal("Nothing due this week! \uD83C\uDF89").queue();
+                        return;
+                    }
+                    event.getHook().editOriginal(buildAssignmentList(thisWeek, "\uD83D\uDCC5 **Due This Week**")).queue();
+                } catch (Exception e) {
+                    event.getHook().editOriginal("Error fetching assignments: " + e.getMessage()).queue();
+                }
+            }
+
+            case "overdue" -> {
+                event.reply("Checking overdue assignments...").queue();
                 try {
                     List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
+                    if (assignments == null) {
+                        event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
+                        return;
+                    }
+                    LocalDateTime now = LocalDateTime.now();
+                    List<CanvasViewer.Assignment> overdue = assignments.stream()
+                            .filter(a -> a.dueDate != null && a.dueDate.isBefore(now))
+                            .collect(Collectors.toList());
+                    if (overdue.isEmpty()) {
+                        event.getHook().editOriginal("No overdue assignments! \uD83C\uDF89").queue();
+                        return;
+                    }
+                    event.getHook().editOriginal(buildAssignmentList(overdue, "⚠️ **Overdue Assignments**")).queue();
+                } catch (Exception e) {
+                    event.getHook().editOriginal("Error fetching assignments: " + e.getMessage()).queue();
+                }
+            }
+
+            case "delete" -> {
+                int number = (int) event.getOption("number").getAsLong();
+                try {
+                    List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                     if (assignments == null || assignments.isEmpty()) {
                         event.reply("No assignments to hide.").setEphemeral(true).queue();
                         return;
@@ -228,7 +278,7 @@ public class StudySyncBot extends ListenerAdapter {
                 TextChannel channel = jda.getTextChannelById(channelId);
                 if (channel == null) { System.err.println("Channel not found for guild " + guildId); return; }
 
-                List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
+                List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                 if (assignments == null || assignments.isEmpty()) {
                     channel.sendMessage("No upcoming assignments!").queue();
                     return;
@@ -255,11 +305,47 @@ public class StudySyncBot extends ListenerAdapter {
         tasks.put(guildId, task);
     }
 
+    static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
+        if (config.feedUrl == null || config.feedUrl.isBlank()) return null;
+        String icalData = CanvasViewer.fetchFeed(config.feedUrl);
+        List<CanvasViewer.Assignment> assignments = CanvasViewer.parseAssignments(icalData);
+        assignments.removeIf(a -> a.title != null && config.hiddenAssignments.contains(a.title));
+        assignments.sort(Comparator.comparing(a -> a.dueDate != null ? a.dueDate : LocalDateTime.MAX));
+        return assignments;
+    }
+
+    static List<CanvasViewer.Assignment> getUpcomingAssignments(ServerConfig config) throws Exception {
+        List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
+        if (assignments == null) return null;
+        LocalDateTime now = LocalDateTime.now();
+        assignments.removeIf(a -> a.dueDate != null && a.dueDate.isBefore(now));
+        return assignments;
+    }
+
+    static String buildAssignmentList(List<CanvasViewer.Assignment> assignments, String header) {
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
+        StringBuilder sb = new StringBuilder(header + "\n");
+        sb.append("─────────────────────────────────\n");
+        int num = 1;
+        for (CanvasViewer.Assignment a : assignments) {
+            String title  = a.title != null ? a.title : "Untitled";
+            String due    = a.dueDate != null ? a.dueDate.format(fmt) : "No due date";
+            String urgent = getUrgencyTag(a.dueDate);
+            sb.append("**").append(num++).append(". ").append(title).append("**\n");
+            sb.append("\uD83D\uDCC5 ").append(due);
+            if (!urgent.isEmpty()) sb.append("  ⚠️ ").append(urgent);
+            sb.append("\n");
+            sb.append("─────────────────────────────────\n");
+            if (sb.length() > 1800) { sb.append("*(and more...)*\n"); break; }
+        }
+        return sb.toString();
+    }
+
 
     static class ServerConfig {
-        String feedUrl      = null;
-        String channelId    = null;
-        int frequencyHours  = 1;
+        String feedUrl     = null;
+        String channelId   = null;
+        int frequencyHours = 1;
         Set<String> hiddenAssignments = new HashSet<>();
     }
 
@@ -300,48 +386,16 @@ public class StudySyncBot extends ListenerAdapter {
                 String field   = key.substring(dot + 1);
                 ServerConfig config = getOrCreateConfig(guildId);
                 switch (field) {
-                    case "feedUrl"       -> config.feedUrl      = value.isBlank() ? null : value;
-                    case "channelId"     -> config.channelId    = value.isBlank() ? null : value;
-                    case "frequencyHours"-> config.frequencyHours = value.isBlank() ? 1 : Integer.parseInt(value);
-                    case "hidden"        -> {
-                        if (!value.isBlank()) {
-                            config.hiddenAssignments.addAll(Arrays.asList(value.split(",")));
-                        }
-                    }
+                    case "feedUrl"        -> config.feedUrl        = value.isBlank() ? null : value;
+                    case "channelId"      -> config.channelId      = value.isBlank() ? null : value;
+                    case "frequencyHours" -> config.frequencyHours = value.isBlank() ? 1 : Integer.parseInt(value);
+                    case "hidden"         -> { if (!value.isBlank()) config.hiddenAssignments.addAll(Arrays.asList(value.split(","))); }
                 }
             }
             System.out.println("Loaded data for " + serverConfigs.size() + " server(s).");
         } catch (IOException e) {
             System.err.println("Error loading server data: " + e.getMessage());
         }
-    }
-
-
-
-    static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
-        if (config.feedUrl == null || config.feedUrl.isBlank()) return null;
-        String icalData = CanvasViewer.fetchFeed(config.feedUrl);
-        List<CanvasViewer.Assignment> assignments = CanvasViewer.parseAssignments(icalData);
-        assignments.removeIf(a -> a.title != null && config.hiddenAssignments.contains(a.title));
-        assignments.sort(Comparator.comparing(a -> a.dueDate != null ? a.dueDate : LocalDateTime.MAX));
-        return assignments;
-    }
-
-    static String buildAssignmentList(List<CanvasViewer.Assignment> assignments, String header) {
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
-        StringBuilder sb = new StringBuilder(header + "\n\n");
-        int num = 1;
-        for (CanvasViewer.Assignment a : assignments) {
-            String title  = a.title != null ? a.title : "Untitled";
-            String due    = a.dueDate != null ? a.dueDate.format(fmt) : "No due date";
-            String urgent = getUrgencyTag(a.dueDate);
-            sb.append("**").append(num++).append(". ").append(title).append("**\n");
-            sb.append("\uD83D\uDCC5 ").append(due);
-            if (!urgent.isEmpty()) sb.append("  ⚠️ ").append(urgent);
-            sb.append("\n\n");
-            if (sb.length() > 1800) { sb.append("*(and more...)*"); break; }
-        }
-        return sb.toString();
     }
 
 
