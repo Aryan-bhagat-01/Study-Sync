@@ -31,6 +31,7 @@ mvn test
 
 ## Data Generation
 javac StudySyncData.java
+
 java StudySyncData.java
 
 ## Continuous Integration
