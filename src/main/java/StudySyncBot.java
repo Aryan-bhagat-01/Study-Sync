@@ -16,24 +16,22 @@ import java.util.stream.Collectors;
 
 public class StudySyncBot extends ListenerAdapter {
 
-    private static final String HIDDEN_FILE = ".hidden_assignments";
+    private static final Map<String, ServerConfig> serverConfigs = new HashMap<>();
+    private static final String DATA_FILE = "server_data.properties";
 
-    private static ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-    private static ScheduledFuture<?> currentTask;
+    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    private static final Map<String, ScheduledFuture<?>> tasks = new HashMap<>();
     private static JDA jda;
 
     public static void main(String[] args) throws Exception {
-        String token     = readEnvValue("DISCORD_TOKEN");
-        String channelId = readEnvValue("DISCORD_CHANNEL_ID");
+        String token = System.getenv("DISCORD_TOKEN");
 
         if (token == null || token.isBlank()) {
-            System.err.println("Error: DISCORD_TOKEN not found in .env or environment");
+            System.err.println("Error: DISCORD_TOKEN environment variable not set.");
             System.exit(1);
         }
-        if (channelId == null || channelId.isBlank()) {
-            System.err.println("Error: DISCORD_CHANNEL_ID not found in .env or environment");
-            System.exit(1);
-        }
+
+        loadAllServerData();
 
         jda = JDABuilder.createDefault(token)
                 .enableIntents(GatewayIntent.GUILD_MESSAGES)
@@ -43,33 +41,39 @@ public class StudySyncBot extends ListenerAdapter {
         jda.awaitReady();
 
         jda.updateCommands().addCommands(
-                Commands.slash("setup", "Link your Canvas iCal feed URL")
+                Commands.slash("setup", "Link your Canvas iCal feed URL to this server")
                         .addOption(OptionType.STRING, "url", "Your Canvas iCal feed URL (.ics)", true),
-                Commands.slash("unlink", "Remove your linked Canvas iCal feed"),
+                Commands.slash("unlink", "Remove this server's linked Canvas iCal feed"),
                 Commands.slash("assignments", "Show all upcoming assignments"),
                 Commands.slash("today", "Show assignments due today"),
-                Commands.slash("edit", "Hide an assignment from the bot by number (use /assignments to see numbers)")
+                Commands.slash("edit", "Hide an assignment by number (use /assignments to see numbers)")
                         .addOption(OptionType.INTEGER, "number", "Assignment number to hide", true),
                 Commands.slash("unhide", "Restore all hidden assignments"),
                 Commands.slash("frequency", "Change how often the bot posts assignments (in hours)")
-                        .addOption(OptionType.INTEGER, "hours", "Number of hours between posts (e.g. 1, 2, 6, 12, 24)", true)
+                        .addOption(OptionType.INTEGER, "hours", "Hours between posts (1-168)", true)
         ).queue();
 
         System.out.println("StudySync bot is online!");
 
-        int frequency = getFrequency();
-        startScheduler(channelId, frequency);
+        for (Map.Entry<String, ServerConfig> entry : serverConfigs.entrySet()) {
+            ServerConfig config = entry.getValue();
+            if (config.feedUrl != null && !config.feedUrl.isBlank() && config.channelId != null) {
+                startScheduler(entry.getKey(), config.channelId, config.frequencyHours);
+            }
+        }
     }
+
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        String channelId;
-        try {
-            channelId = readEnvValue("DISCORD_CHANNEL_ID");
-        } catch (IOException e) {
-            event.reply("Error reading config.").setEphemeral(true).queue();
+        if (event.getGuild() == null) {
+            event.reply("This bot only works in servers.").setEphemeral(true).queue();
             return;
         }
+
+        String guildId   = event.getGuild().getId();
+        String channelId = event.getChannel().getId();
+        ServerConfig config = getOrCreateConfig(guildId);
 
         switch (event.getName()) {
 
@@ -95,32 +99,45 @@ public class StudySyncBot extends ListenerAdapter {
                 try {
                     String icalData = CanvasViewer.fetchFeed(finalUrl);
                     if (!icalData.contains("BEGIN:VCALENDAR")) {
-                        event.getHook().editOriginal("That URL didn't return a valid iCal feed.").queue();
+                        event.getHook().editOriginal("That URL didn't return a valid iCal feed. Make sure you copied the full link from Canvas Calendar.").queue();
                         return;
                     }
                     int count = countOccurrences(icalData, "BEGIN:VEVENT");
-                    writeEnvValue("CANVAS_FEED_URL", finalUrl);
-                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s).").queue();
-                    startScheduler(channelId, getFrequency());
+
+                    config.feedUrl   = finalUrl;
+                    config.channelId = channelId;
+                    saveAllServerData();
+
+                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s). I'll post updates in this channel every **" + config.frequencyHours + "** hour(s).").queue();
+                    startScheduler(guildId, channelId, config.frequencyHours);
+
                 } catch (Exception e) {
                     event.getHook().editOriginal("Could not reach that URL. Make sure it's correct and try again.").queue();
                 }
             }
 
             case "unlink" -> {
-                try {
-                    removeEnvValue("CANVAS_FEED_URL");
-                    if (currentTask != null) currentTask.cancel(false);
-                    event.reply("Canvas feed unlinked. The bot will stop posting assignments.").queue();
-                } catch (IOException e) {
-                    event.reply("Error unlinking feed.").setEphemeral(true).queue();
+                if (config.feedUrl == null || config.feedUrl.isBlank()) {
+                    event.reply("No Canvas feed is linked to this server.").setEphemeral(true).queue();
+                    return;
                 }
+                // Clear only this server's data
+                config.feedUrl   = null;
+                config.channelId = null;
+                config.hiddenAssignments.clear();
+                saveAllServerData();
+
+                // Stop this server's scheduler
+                ScheduledFuture<?> task = tasks.remove(guildId);
+                if (task != null) task.cancel(false);
+
+                event.reply("Canvas feed unlinked for this server. The bot will stop posting assignments.").queue();
             }
 
             case "assignments" -> {
                 event.reply("Fetching your assignments...").queue();
                 try {
-                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments();
+                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
                     if (assignments == null) {
                         event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
                         return;
@@ -138,7 +155,7 @@ public class StudySyncBot extends ListenerAdapter {
             case "today" -> {
                 event.reply("Checking what's due today...").queue();
                 try {
-                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments();
+                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
                     if (assignments == null) {
                         event.getHook().editOriginal("No Canvas feed linked yet. Use `/setup <url>` to link one.").queue();
                         return;
@@ -160,7 +177,7 @@ public class StudySyncBot extends ListenerAdapter {
             case "edit" -> {
                 int number = (int) event.getOption("number").getAsLong();
                 try {
-                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments();
+                    List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
                     if (assignments == null || assignments.isEmpty()) {
                         event.reply("No assignments to hide.").setEphemeral(true).queue();
                         return;
@@ -169,21 +186,19 @@ public class StudySyncBot extends ListenerAdapter {
                         event.reply("Invalid number. Use `/assignments` to see the list.").setEphemeral(true).queue();
                         return;
                     }
-                    CanvasViewer.Assignment toHide = assignments.get(number - 1);
-                    hideAssignment(toHide.title);
-                    event.reply("Hidden **" + toHide.title + "**. Use `/unhide` to restore it.").queue();
+                    String title = assignments.get(number - 1).title;
+                    config.hiddenAssignments.add(title);
+                    saveAllServerData();
+                    event.reply("Hidden **" + title + "**. Use `/unhide` to restore it.").queue();
                 } catch (Exception e) {
                     event.reply("Error hiding assignment: " + e.getMessage()).setEphemeral(true).queue();
                 }
             }
 
             case "unhide" -> {
-                try {
-                    Files.deleteIfExists(Paths.get(HIDDEN_FILE));
-                    event.reply("All hidden assignments have been restored!").queue();
-                } catch (IOException e) {
-                    event.reply("Error restoring assignments.").setEphemeral(true).queue();
-                }
+                config.hiddenAssignments.clear();
+                saveAllServerData();
+                event.reply("All hidden assignments have been restored!").queue();
             }
 
             case "frequency" -> {
@@ -192,26 +207,32 @@ public class StudySyncBot extends ListenerAdapter {
                     event.reply("Please enter a value between 1 and 168 hours.").setEphemeral(true).queue();
                     return;
                 }
-                try {
-                    writeEnvValue("POST_FREQUENCY_HOURS", String.valueOf(hours));
-                    startScheduler(channelId, hours);
-                    event.reply("Got it! I'll post assignments every **" + hours + "** hour(s).").queue();
-                } catch (IOException e) {
-                    event.reply("Error saving frequency.").setEphemeral(true).queue();
-                }
+                config.frequencyHours = hours;
+                saveAllServerData();
+                if (config.channelId != null) startScheduler(guildId, config.channelId, hours);
+                event.reply("Got it! I'll post assignments every **" + hours + "** hour(s).").queue();
             }
         }
     }
 
-    static void startScheduler(String channelId, int frequencyHours) {
-        if (currentTask != null) currentTask.cancel(false);
-        currentTask = scheduler.scheduleAtFixedRate(() -> {
+
+    static void startScheduler(String guildId, String channelId, int frequencyHours) {
+        ScheduledFuture<?> existing = tasks.get(guildId);
+        if (existing != null) existing.cancel(false);
+
+        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(() -> {
             try {
-                List<CanvasViewer.Assignment> assignments = getVisibleAssignments();
-                if (assignments == null || assignments.isEmpty()) return;
+                ServerConfig config = serverConfigs.get(guildId);
+                if (config == null || config.feedUrl == null || config.feedUrl.isBlank()) return;
 
                 TextChannel channel = jda.getTextChannelById(channelId);
-                if (channel == null) { System.err.println("Error: Channel not found."); return; }
+                if (channel == null) { System.err.println("Channel not found for guild " + guildId); return; }
+
+                List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
+                if (assignments == null || assignments.isEmpty()) {
+                    channel.sendMessage("No upcoming assignments!").queue();
+                    return;
+                }
 
                 CanvasViewer.Assignment next = assignments.get(0);
                 DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
@@ -224,20 +245,84 @@ public class StudySyncBot extends ListenerAdapter {
                         (urgency.isEmpty() ? "" : "⚠️ " + urgency);
 
                 channel.sendMessage(message).queue();
-                System.out.println("Posted: " + next.title);
+                System.out.println("[" + guildId + "] Posted: " + next.title);
+
             } catch (Exception e) {
-                System.err.println("Error posting assignment: " + e.getMessage());
+                System.err.println("Error posting for guild " + guildId + ": " + e.getMessage());
             }
         }, 0, frequencyHours, TimeUnit.HOURS);
+
+        tasks.put(guildId, task);
     }
 
-    static List<CanvasViewer.Assignment> getVisibleAssignments() throws Exception {
-        String feedUrl = readEnvValue("CANVAS_FEED_URL");
-        if (feedUrl == null || feedUrl.isBlank()) return null;
-        String icalData = CanvasViewer.fetchFeed(feedUrl);
+
+    static class ServerConfig {
+        String feedUrl      = null;
+        String channelId    = null;
+        int frequencyHours  = 1;
+        Set<String> hiddenAssignments = new HashSet<>();
+    }
+
+    static ServerConfig getOrCreateConfig(String guildId) {
+        return serverConfigs.computeIfAbsent(guildId, k -> new ServerConfig());
+    }
+
+    static void saveAllServerData() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, ServerConfig> entry : serverConfigs.entrySet()) {
+                String id = entry.getKey();
+                ServerConfig c = entry.getValue();
+                sb.append(id).append(".feedUrl=").append(c.feedUrl != null ? c.feedUrl : "").append("\n");
+                sb.append(id).append(".channelId=").append(c.channelId != null ? c.channelId : "").append("\n");
+                sb.append(id).append(".frequencyHours=").append(c.frequencyHours).append("\n");
+                sb.append(id).append(".hidden=").append(String.join(",", c.hiddenAssignments)).append("\n");
+            }
+            Files.writeString(Paths.get(DATA_FILE), sb.toString());
+        } catch (IOException e) {
+            System.err.println("Error saving server data: " + e.getMessage());
+        }
+    }
+
+    static void loadAllServerData() {
+        try {
+            Path path = Paths.get(DATA_FILE);
+            if (!Files.exists(path)) return;
+            for (String line : Files.readAllLines(path)) {
+                if (line.isBlank()) continue;
+                int eq = line.indexOf('=');
+                if (eq == -1) continue;
+                String key   = line.substring(0, eq);
+                String value = line.substring(eq + 1).trim();
+                int dot = key.lastIndexOf('.');
+                if (dot == -1) continue;
+                String guildId = key.substring(0, dot);
+                String field   = key.substring(dot + 1);
+                ServerConfig config = getOrCreateConfig(guildId);
+                switch (field) {
+                    case "feedUrl"       -> config.feedUrl      = value.isBlank() ? null : value;
+                    case "channelId"     -> config.channelId    = value.isBlank() ? null : value;
+                    case "frequencyHours"-> config.frequencyHours = value.isBlank() ? 1 : Integer.parseInt(value);
+                    case "hidden"        -> {
+                        if (!value.isBlank()) {
+                            config.hiddenAssignments.addAll(Arrays.asList(value.split(",")));
+                        }
+                    }
+                }
+            }
+            System.out.println("Loaded data for " + serverConfigs.size() + " server(s).");
+        } catch (IOException e) {
+            System.err.println("Error loading server data: " + e.getMessage());
+        }
+    }
+
+
+
+    static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
+        if (config.feedUrl == null || config.feedUrl.isBlank()) return null;
+        String icalData = CanvasViewer.fetchFeed(config.feedUrl);
         List<CanvasViewer.Assignment> assignments = CanvasViewer.parseAssignments(icalData);
-        Set<String> hidden = loadHiddenAssignments();
-        assignments.removeIf(a -> a.title != null && hidden.contains(a.title));
+        assignments.removeIf(a -> a.title != null && config.hiddenAssignments.contains(a.title));
         assignments.sort(Comparator.comparing(a -> a.dueDate != null ? a.dueDate : LocalDateTime.MAX));
         return assignments;
     }
@@ -259,18 +344,6 @@ public class StudySyncBot extends ListenerAdapter {
         return sb.toString();
     }
 
-    static void hideAssignment(String title) throws IOException {
-        Path path = Paths.get(HIDDEN_FILE);
-        List<String> hidden = Files.exists(path) ? new ArrayList<>(Files.readAllLines(path)) : new ArrayList<>();
-        if (!hidden.contains(title)) hidden.add(title);
-        Files.writeString(path, String.join("\n", hidden) + "\n");
-    }
-
-    static Set<String> loadHiddenAssignments() throws IOException {
-        Path path = Paths.get(HIDDEN_FILE);
-        if (!Files.exists(path)) return new HashSet<>();
-        return new HashSet<>(Files.readAllLines(path));
-    }
 
     static String getUrgencyTag(LocalDateTime due) {
         if (due == null) return "";
@@ -282,47 +355,9 @@ public class StudySyncBot extends ListenerAdapter {
         return "";
     }
 
-    static int getFrequency() {
-        try {
-            String val = readEnvValue("POST_FREQUENCY_HOURS");
-            if (val != null && !val.isBlank()) return Integer.parseInt(val);
-        } catch (Exception ignored) {}
-        return 1;
-    }
-
     static int countOccurrences(String text, String target) {
         int count = 0, index = 0;
         while ((index = text.indexOf(target, index)) != -1) { count++; index += target.length(); }
         return count;
-    }
-
-    static String readEnvValue(String key) throws IOException {
-        // Check system environment variables first (for Railway/hosting)
-        String envVal = System.getenv(key);
-        if (envVal != null && !envVal.isBlank()) return envVal;
-
-        // Fall back to .env file (for local development)
-        Path path = Paths.get(".env");
-        if (!Files.exists(path)) return null;
-        for (String line : Files.readAllLines(path)) {
-            if (line.startsWith(key + "=")) return line.substring(key.length() + 1).trim();
-        }
-        return null;
-    }
-
-    static void writeEnvValue(String key, String value) throws IOException {
-        Path path = Paths.get(".env");
-        List<String> lines = Files.exists(path) ? new ArrayList<>(Files.readAllLines(path)) : new ArrayList<>();
-        lines.removeIf(l -> l.startsWith(key + "="));
-        lines.add(key + "=" + value);
-        Files.writeString(path, String.join("\n", lines) + "\n");
-    }
-
-    static void removeEnvValue(String key) throws IOException {
-        Path path = Paths.get(".env");
-        if (!Files.exists(path)) return;
-        List<String> lines = new ArrayList<>(Files.readAllLines(path));
-        lines.removeIf(l -> l.startsWith(key + "="));
-        Files.writeString(path, String.join("\n", lines) + "\n");
     }
 }
