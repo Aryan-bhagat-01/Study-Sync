@@ -22,7 +22,11 @@ mvn clean install
 ## Run
 Run the application:
 
-mvn exec:java
+mvn exec:java -Dexec.mainClass=StudySyncBot
+
+A Discord bot token is required to run the bot.
+No Discord token is included for security reasons.
+Discord tokens must be created from the Discord Developer portal.
 
 ## Tests
 Run unit tests:
