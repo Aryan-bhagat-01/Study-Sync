@@ -3,20 +3,20 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class StudySyncTests {
 
     private static final String ENV_FILE = ".env";
-    private static final String HIDDEN_FILE = ".hidden_assignments";
 
     @AfterEach
     void cleanup() throws IOException {
         Files.deleteIfExists(Paths.get(ENV_FILE));
-        Files.deleteIfExists(Paths.get(HIDDEN_FILE));
+        Files.deleteIfExists(Paths.get(StudySyncBot.DATA_FILE));
     }
+
+    // ── CanvasSetup Tests ─────────────────────────────────────────────────────
 
     @Test
     void testExtractBaseUrlStandard() {
@@ -47,6 +47,8 @@ public class StudySyncTests {
         String content = Files.readString(Paths.get(ENV_FILE));
         assertTrue(content.contains("CANVAS_URL=https://uml.instructure.com"));
     }
+
+    // ── CanvasViewer Tests ────────────────────────────────────────────────────
 
     @Test
     void testCleanDescriptionLinks() {
@@ -109,34 +111,62 @@ public class StudySyncTests {
         assertEquals("[THIS WEEK]", CanvasViewer.getUrgencyTag(now.plusDays(4), now));
     }
 
+    // ── StudySyncBot Tests ────────────────────────────────────────────────────
+
     @Test
-    void testGetFrequencyDefault() {
-        assertEquals(1, StudySyncBot.getFrequency());
+    void testGetOrCreateConfig() {
+        StudySyncBot.ServerConfig config = StudySyncBot.getOrCreateConfig("guild123");
+        assertNotNull(config);
+        assertEquals(1, config.frequencyHours);
+        assertNull(config.feedUrl);
     }
 
     @Test
-    void testSetFrequency() throws IOException {
-        StudySyncBot.writeEnvValue("POST_FREQUENCY_HOURS", "12");
-        assertEquals(12, StudySyncBot.getFrequency());
+    void testHideAssignmentPerServer() {
+        StudySyncBot.ServerConfig config = new StudySyncBot.ServerConfig();
+        config.hiddenAssignments.add("Final Exam");
+        assertTrue(config.hiddenAssignments.contains("Final Exam"));
     }
 
     @Test
-    void testHideAssignment() throws IOException {
-        StudySyncBot.hideAssignment("Final Exam");
-        Set<String> hidden = StudySyncBot.loadHiddenAssignments();
-        assertTrue(hidden.contains("Final Exam"));
+    void testUnhideAssignments() {
+        StudySyncBot.ServerConfig config = new StudySyncBot.ServerConfig();
+        config.hiddenAssignments.add("Final Exam");
+        config.hiddenAssignments.add("Homework 1");
+        config.hiddenAssignments.clear();
+        assertTrue(config.hiddenAssignments.isEmpty());
     }
 
     @Test
-    void testRemoveEnvValue() throws IOException {
-        StudySyncBot.writeEnvValue("CANVAS_FEED_URL", "https://canvas.ics");
-        StudySyncBot.removeEnvValue("CANVAS_FEED_URL");
-        assertNull(StudySyncBot.readEnvValue("CANVAS_FEED_URL"));
+    void testSaveAndLoadServerData() throws IOException {
+        StudySyncBot.serverConfigs.clear();
+        StudySyncBot.ServerConfig config = StudySyncBot.getOrCreateConfig("testGuild");
+        config.feedUrl = "https://canvas.example.com/feed.ics";
+        config.channelId = "123456789";
+        config.frequencyHours = 6;
+        config.hiddenAssignments.add("Hidden Assignment");
+
+        StudySyncBot.saveAllServerData();
+        StudySyncBot.serverConfigs.clear();
+        StudySyncBot.loadAllServerData();
+
+        StudySyncBot.ServerConfig loaded = StudySyncBot.serverConfigs.get("testGuild");
+        assertNotNull(loaded);
+        assertEquals("https://canvas.example.com/feed.ics", loaded.feedUrl);
+        assertEquals("123456789", loaded.channelId);
+        assertEquals(6, loaded.frequencyHours);
+        assertTrue(loaded.hiddenAssignments.contains("Hidden Assignment"));
     }
 
     @Test
-    void testLoadHiddenEmpty() throws IOException {
-        Set<String> hidden = StudySyncBot.loadHiddenAssignments();
-        assertTrue(hidden.isEmpty());
+    void testDefaultFrequency() {
+        StudySyncBot.ServerConfig config = new StudySyncBot.ServerConfig();
+        assertEquals(1, config.frequencyHours);
+    }
+
+    @Test
+    void testCountOccurrencesBot() {
+        String data = "BEGIN:VEVENT...BEGIN:VEVENT";
+        assertEquals(2, StudySyncBot.countOccurrences(data, "BEGIN:VEVENT"));
     }
 }

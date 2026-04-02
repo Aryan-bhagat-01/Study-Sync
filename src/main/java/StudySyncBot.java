@@ -17,8 +17,8 @@ import java.util.stream.Collectors;
 
 public class StudySyncBot extends ListenerAdapter {
 
-    private static final Map<String, ServerConfig> serverConfigs = new HashMap<>();
-    private static final String DATA_FILE = "server_data.properties";
+    public static final Map<String, ServerConfig> serverConfigs = new HashMap<>();
+    public static final String DATA_FILE = "server_data.properties";
 
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
     private static final Map<String, ScheduledFuture<?>> tasks = new HashMap<>();
