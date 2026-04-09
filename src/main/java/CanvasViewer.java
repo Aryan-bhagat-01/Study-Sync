@@ -33,7 +33,6 @@ public class CanvasViewer {
         printAssignments(assignments);
     }
 
-
     static String fetchFeed(String feedUrl) throws Exception {
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -56,7 +55,6 @@ public class CanvasViewer {
         return response.body();
     }
 
-
     static List<Assignment> parseAssignments(String icalData) {
         List<Assignment> assignments = new ArrayList<>();
         String[] lines = icalData.split("\\r?\\n");
@@ -65,31 +63,47 @@ public class CanvasViewer {
         StringBuilder descBuffer = new StringBuilder();
         boolean inDesc = false;
 
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i];
-
-            if (line.startsWith(" ") && current != null) {
-                if (inDesc) descBuffer.append(line.trim());
-                continue;
+        List<String> unfolded = new ArrayList<>();
+        for (String line : lines) {
+            if ((line.startsWith(" ") || line.startsWith("\t")) && !unfolded.isEmpty()) {
+                String prev = unfolded.remove(unfolded.size() - 1);
+                unfolded.add(prev + line.substring(1));
+            } else {
+                unfolded.add(line);
             }
-            inDesc = false;
+        }
 
+        for (String line : unfolded) {
             if (line.equals("BEGIN:VEVENT")) {
                 current = new Assignment();
                 descBuffer.setLength(0);
+                inDesc = false;
 
             } else if (line.equals("END:VEVENT") && current != null) {
                 current.description = cleanDescription(descBuffer.toString());
-                assignments.add(current);
+                if (current.title != null && !current.title.isBlank()) {
+                    assignments.add(current);
+                }
                 current = null;
+                inDesc = false;
 
             } else if (current != null) {
                 if (line.startsWith("SUMMARY:")) {
                     current.title = line.substring(8).trim();
+                    inDesc = false;
 
-                } else if (line.startsWith("DUE:") || line.startsWith("DTEND:")) {
-                    String value = line.contains(":") ? line.substring(line.indexOf(':') + 1).trim() : "";
-                    current.dueDate = parseDate(value);
+                } else if (line.startsWith("DUE") || line.startsWith("DTEND") || line.startsWith("DTSTART")) {
+                    String value = extractValue(line);
+                    LocalDateTime parsed = parseDate(value);
+
+                    if (line.startsWith("DUE")) {
+                        current.dueDate = parsed;
+                    } else if (line.startsWith("DTEND") && current.dueDate == null) {
+                        current.dueDate = parsed;
+                    } else if (line.startsWith("DTSTART") && current.dueDate == null) {
+                        current.dueDate = parsed;
+                    }
+                    inDesc = false;
 
                 } else if (line.startsWith("DESCRIPTION:")) {
                     descBuffer.append(line.substring(12).trim());
@@ -97,6 +111,10 @@ public class CanvasViewer {
 
                 } else if (line.startsWith("URL:")) {
                     current.url = line.substring(4).trim();
+                    inDesc = false;
+
+                } else if (inDesc) {
+                    descBuffer.append(line);
                 }
             }
         }
@@ -104,10 +122,15 @@ public class CanvasViewer {
         return assignments;
     }
 
+    static String extractValue(String line) {
+        int colon = line.indexOf(':');
+        if (colon == -1) return "";
+        return line.substring(colon + 1).trim();
+    }
+
     static LocalDateTime parseDate(String raw) {
-        if (raw.contains(":")) {
-            raw = raw.substring(raw.lastIndexOf(':') + 1);
-        }
+        if (raw == null || raw.isBlank()) return null;
+        raw = raw.trim();
         try {
             if (raw.endsWith("Z")) {
                 return LocalDateTime.parse(raw.replace("Z", ""),
@@ -115,13 +138,13 @@ public class CanvasViewer {
             } else if (raw.contains("T")) {
                 return LocalDateTime.parse(raw,
                         DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss"));
-            } else {
+            } else if (raw.length() == 8) {
                 LocalDate date = LocalDate.parse(raw, DateTimeFormatter.ofPattern("yyyyMMdd"));
-                return date.atStartOfDay();
+                return date.atTime(23, 59);
             }
         } catch (Exception e) {
-            return null;
         }
+        return null;
     }
 
     static String cleanDescription(String raw) {
@@ -133,7 +156,6 @@ public class CanvasViewer {
                 .replaceAll("https?://\\S+", "")
                 .trim();
     }
-
 
     static void printAssignments(List<Assignment> assignments) {
         DateTimeFormatter display = DateTimeFormatter.ofPattern("MMM dd, yyyy  hh:mm a");
@@ -179,13 +201,10 @@ public class CanvasViewer {
         return s.length() <= max ? s : s.substring(0, max - 1) + "...";
     }
 
-
     static String readEnvValue(String key) throws IOException {
-        // Check system environment variables first (for Railway/hosting)
         String envVal = System.getenv(key);
         if (envVal != null && !envVal.isBlank()) return envVal;
 
-        // Fall back to .env file (for local development)
         Path path = Paths.get(ENV_FILE);
         if (!Files.exists(path)) return null;
         for (String line : Files.readAllLines(path)) {
@@ -195,7 +214,6 @@ public class CanvasViewer {
         }
         return null;
     }
-
 
     static class Assignment {
         String title;
