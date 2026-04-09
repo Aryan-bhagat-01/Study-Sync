@@ -50,9 +50,11 @@ public class StudySyncBot extends ListenerAdapter {
                 Commands.slash("today", "Show assignments due today"),
                 Commands.slash("upcoming", "Show assignments due this week"),
                 Commands.slash("overdue", "Show overdue assignments"),
+                Commands.slash("complete", "Mark an assignment as complete so it won't show up again")
+                        .addOption(OptionType.INTEGER, "number", "Assignment number to mark complete (use /assignments to see numbers)", true),
                 Commands.slash("delete", "Hide an assignment by number (use /assignments to see numbers)")
                         .addOption(OptionType.INTEGER, "number", "Assignment number to hide", true),
-                Commands.slash("unhide", "Restore all hidden assignments"),
+                Commands.slash("unhide", "Restore all hidden and completed assignments"),
                 Commands.slash("frequency", "Change how often the bot posts assignments (in hours)")
                         .addOption(OptionType.INTEGER, "hours", "Hours between posts (1-168)", true)
         ).queue();
@@ -66,8 +68,6 @@ public class StudySyncBot extends ListenerAdapter {
             }
         }
     }
-
-    //Slash Command Handler
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
@@ -111,7 +111,11 @@ public class StudySyncBot extends ListenerAdapter {
                     config.feedUrl   = finalUrl;
                     config.channelId = channelId;
                     saveAllServerData();
-                    event.getHook().editOriginal("Feed linked! Found **" + count + "** event(s). I'll post the most upcoming assignment in this channel every **" + config.frequencyHours + "** hour(s).").queue();
+                    event.getHook().editOriginal(
+                        "✅ **Feed linked!** Found **" + count + "** event(s).\n" +
+                        "I'll post your most upcoming assignment in this channel every **" + config.frequencyHours + "** hour(s).\n\n" +
+                        "Use `/assignments` to see all upcoming assignments anytime!"
+                    ).queue();
                     startScheduler(guildId, channelId, config.frequencyHours);
                 } catch (Exception e) {
                     event.getHook().editOriginal("Could not reach that URL. Make sure it's correct and try again.").queue();
@@ -225,6 +229,27 @@ public class StudySyncBot extends ListenerAdapter {
                 }
             }
 
+            case "complete" -> {
+                int number = (int) event.getOption("number").getAsLong();
+                try {
+                    List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
+                    if (assignments == null || assignments.isEmpty()) {
+                        event.reply("No assignments found.").setEphemeral(true).queue();
+                        return;
+                    }
+                    if (number < 1 || number > assignments.size()) {
+                        event.reply("Invalid number. Use `/assignments` to see the list.").setEphemeral(true).queue();
+                        return;
+                    }
+                    String title = assignments.get(number - 1).title;
+                    config.hiddenAssignments.add(title);
+                    saveAllServerData();
+                    event.reply("✅ Marked **" + title + "** as complete! It won't show up again.\nUse `/unhide` to restore it if needed.").queue();
+                } catch (Exception e) {
+                    event.reply("Error marking assignment as complete: " + e.getMessage()).setEphemeral(true).queue();
+                }
+            }
+
             case "delete" -> {
                 int number = (int) event.getOption("number").getAsLong();
                 try {
@@ -249,7 +274,7 @@ public class StudySyncBot extends ListenerAdapter {
             case "unhide" -> {
                 config.hiddenAssignments.clear();
                 saveAllServerData();
-                event.reply("All hidden assignments have been restored!").queue();
+                event.reply("All hidden and completed assignments have been restored!").queue();
             }
 
             case "frequency" -> {
@@ -265,8 +290,6 @@ public class StudySyncBot extends ListenerAdapter {
             }
         }
     }
-
-    //Scheduler
 
     static void startScheduler(String guildId, String channelId, int frequencyHours) {
         ScheduledFuture<?> existing = tasks.get(guildId);
@@ -307,8 +330,6 @@ public class StudySyncBot extends ListenerAdapter {
         tasks.put(guildId, task);
     }
 
-    //Assignment Helpers
-
     static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
         if (config.feedUrl == null || config.feedUrl.isBlank()) return null;
         String icalData = CanvasViewer.fetchFeed(config.feedUrl);
@@ -344,8 +365,6 @@ public class StudySyncBot extends ListenerAdapter {
         }
         return sb.toString();
     }
-
-    //Per-Server Data
 
     static class ServerConfig {
         String feedUrl     = null;
@@ -402,8 +421,6 @@ public class StudySyncBot extends ListenerAdapter {
             System.err.println("Error loading server data: " + e.getMessage());
         }
     }
-
-    //General Helpers
 
     static String getUrgencyTag(LocalDateTime due) {
         if (due == null) return "";
