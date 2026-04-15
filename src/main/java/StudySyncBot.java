@@ -35,24 +35,24 @@ public class StudySyncBot extends ListenerAdapter {
         loadAllServerData();
 
         jda = JDABuilder.createDefault(token)
-                .enableIntents(GatewayIntent.GUILD_MESSAGES)
+                .enableIntents(GatewayIntent.GUILD_MESSAGES, GatewayIntent.DIRECT_MESSAGES)
                 .addEventListeners(new StudySyncBot())
                 .build();
 
         jda.awaitReady();
 
         jda.updateCommands().addCommands(
-                Commands.slash("setup", "Link your Canvas iCal feed URL to this server")
+                Commands.slash("setup", "Link your Canvas iCal feed URL")
                         .addOption(OptionType.STRING, "url", "Your Canvas iCal feed URL (.ics)", true),
-                Commands.slash("unlink", "Remove this server's linked Canvas iCal feed"),
+                Commands.slash("unlink", "Remove your linked Canvas iCal feed"),
                 Commands.slash("assignments", "Show upcoming assignments")
                         .addOption(OptionType.INTEGER, "count", "How many assignments to show (default: 10)", false),
                 Commands.slash("today", "Show assignments due today"),
                 Commands.slash("upcoming", "Show assignments due this week"),
                 Commands.slash("overdue", "Show overdue assignments"),
                 Commands.slash("complete", "Mark an assignment as complete so it won't show up again")
-                        .addOption(OptionType.INTEGER, "number", "Assignment number to mark complete (use /assignments to see numbers)", true),
-                Commands.slash("delete", "Hide an assignment by number (use /assignments to see numbers)")
+                        .addOption(OptionType.INTEGER, "number", "Assignment number to mark complete", true),
+                Commands.slash("delete", "Hide an assignment by number")
                         .addOption(OptionType.INTEGER, "number", "Assignment number to hide", true),
                 Commands.slash("unhide", "Restore all hidden and completed assignments"),
                 Commands.slash("frequency", "Change how often the bot posts assignments (in hours)")
@@ -63,22 +63,33 @@ public class StudySyncBot extends ListenerAdapter {
 
         for (Map.Entry<String, ServerConfig> entry : serverConfigs.entrySet()) {
             ServerConfig config = entry.getValue();
-            if (config.feedUrl != null && !config.feedUrl.isBlank() && config.channelId != null) {
-                startScheduler(entry.getKey(), config.channelId, config.frequencyHours);
+            if (config.feedUrl != null && !config.feedUrl.isBlank()) {
+                if (config.isUserInstall && config.userId != null) {
+                    startUserScheduler(entry.getKey(), config.userId, config.frequencyHours);
+                } else if (config.channelId != null) {
+                    startScheduler(entry.getKey(), config.channelId, config.frequencyHours);
+                }
             }
         }
     }
 
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
-        if (event.getGuild() == null) {
-            event.reply("This bot only works in servers.").setEphemeral(true).queue();
-            return;
+        boolean isUserInstall = event.getGuild() == null;
+        String configKey;
+        String userId = event.getUser().getId();
+
+        if (isUserInstall) {
+            configKey = "user_" + userId;
+        } else {
+            configKey = "guild_" + event.getGuild().getId();
         }
 
-        String guildId   = event.getGuild().getId();
-        String channelId = event.getChannel().getId();
-        ServerConfig config = getOrCreateConfig(guildId);
+        ServerConfig config = getOrCreateConfig(configKey);
+        config.isUserInstall = isUserInstall;
+        if (isUserInstall) config.userId = userId;
+
+        String channelId = isUserInstall ? null : event.getChannel().getId();
 
         switch (event.getName()) {
 
@@ -99,8 +110,9 @@ public class StudySyncBot extends ListenerAdapter {
                     return;
                 }
 
-                event.reply("Verifying your Canvas feed...").queue();
+                event.reply("Verifying your Canvas feed...").setEphemeral(isUserInstall).queue();
                 final String finalUrl = url;
+                final String finalChannelId = channelId;
                 try {
                     String icalData = CanvasViewer.fetchFeed(finalUrl);
                     if (!icalData.contains("BEGIN:VCALENDAR")) {
@@ -108,15 +120,22 @@ public class StudySyncBot extends ListenerAdapter {
                         return;
                     }
                     int count = countOccurrences(icalData, "BEGIN:VEVENT");
-                    config.feedUrl   = finalUrl;
-                    config.channelId = channelId;
+                    config.feedUrl = finalUrl;
+                    if (!isUserInstall) config.channelId = finalChannelId;
                     saveAllServerData();
+
+                    String destination = isUserInstall ? "your DMs" : "this channel";
                     event.getHook().editOriginal(
                         "✅ **Feed linked!** Found **" + count + "** event(s).\n" +
-                        "I'll post your most upcoming assignment in this channel every **" + config.frequencyHours + "** hour(s).\n\n" +
+                        "I'll post your most upcoming assignment to " + destination + " every **" + config.frequencyHours + "** hour(s).\n\n" +
                         "Use `/assignments` to see all upcoming assignments anytime!"
                     ).queue();
-                    startScheduler(guildId, channelId, config.frequencyHours);
+
+                    if (isUserInstall) {
+                        startUserScheduler(configKey, userId, config.frequencyHours);
+                    } else {
+                        startScheduler(configKey, finalChannelId, config.frequencyHours);
+                    }
                 } catch (Exception e) {
                     event.getHook().editOriginal("Could not reach that URL. Make sure it's correct and try again.").queue();
                 }
@@ -124,17 +143,17 @@ public class StudySyncBot extends ListenerAdapter {
 
             case "unlink" -> {
                 if (config.feedUrl == null || config.feedUrl.isBlank()) {
-                    event.reply("No Canvas feed is linked to this server.").setEphemeral(true).queue();
+                    event.reply("No Canvas feed is linked. Use `/setup <url>` to link one.").setEphemeral(true).queue();
                     return;
                 }
-                config.feedUrl   = null;
+                config.feedUrl = null;
                 config.channelId = null;
                 config.hiddenAssignments.clear();
                 saveAllServerData();
 
-                ScheduledFuture<?> task = tasks.remove(guildId);
+                ScheduledFuture<?> task = tasks.remove(configKey);
                 if (task != null) task.cancel(false);
-                event.reply("Canvas feed unlinked for this server. The bot will stop posting assignments.").queue();
+                event.reply("Canvas feed unlinked. The bot will stop posting assignments.").setEphemeral(isUserInstall).queue();
             }
 
             case "assignments" -> {
@@ -143,7 +162,7 @@ public class StudySyncBot extends ListenerAdapter {
                 if (limit < 1) limit = 1;
                 if (limit > 50) limit = 50;
 
-                event.reply("Fetching your assignments...").queue();
+                event.reply("Fetching your assignments...").setEphemeral(isUserInstall).queue();
                 try {
                     List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                     if (assignments == null) {
@@ -163,7 +182,7 @@ public class StudySyncBot extends ListenerAdapter {
             }
 
             case "today" -> {
-                event.reply("Checking what's due today...").queue();
+                event.reply("Checking what's due today...").setEphemeral(isUserInstall).queue();
                 try {
                     List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                     if (assignments == null) {
@@ -185,7 +204,7 @@ public class StudySyncBot extends ListenerAdapter {
             }
 
             case "upcoming" -> {
-                event.reply("Checking what's due this week...").queue();
+                event.reply("Checking what's due this week...").setEphemeral(isUserInstall).queue();
                 try {
                     List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                     if (assignments == null) {
@@ -208,7 +227,7 @@ public class StudySyncBot extends ListenerAdapter {
             }
 
             case "overdue" -> {
-                event.reply("Checking overdue assignments...").queue();
+                event.reply("Checking overdue assignments...").setEphemeral(isUserInstall).queue();
                 try {
                     List<CanvasViewer.Assignment> assignments = getVisibleAssignments(config);
                     if (assignments == null) {
@@ -244,7 +263,7 @@ public class StudySyncBot extends ListenerAdapter {
                     String title = assignments.get(number - 1).title;
                     config.hiddenAssignments.add(title);
                     saveAllServerData();
-                    event.reply("✅ Marked **" + title + "** as complete! It won't show up again.\nUse `/unhide` to restore it if needed.").queue();
+                    event.reply("✅ Marked **" + title + "** as complete! It won't show up again.\nUse `/unhide` to restore it if needed.").setEphemeral(isUserInstall).queue();
                 } catch (Exception e) {
                     event.reply("Error marking assignment as complete: " + e.getMessage()).setEphemeral(true).queue();
                 }
@@ -265,7 +284,7 @@ public class StudySyncBot extends ListenerAdapter {
                     String title = assignments.get(number - 1).title;
                     config.hiddenAssignments.add(title);
                     saveAllServerData();
-                    event.reply("Hidden **" + title + "**. Use `/unhide` to restore it.").queue();
+                    event.reply("Hidden **" + title + "**. Use `/unhide` to restore it.").setEphemeral(isUserInstall).queue();
                 } catch (Exception e) {
                     event.reply("Error hiding assignment: " + e.getMessage()).setEphemeral(true).queue();
                 }
@@ -274,7 +293,7 @@ public class StudySyncBot extends ListenerAdapter {
             case "unhide" -> {
                 config.hiddenAssignments.clear();
                 saveAllServerData();
-                event.reply("All hidden and completed assignments have been restored!").queue();
+                event.reply("All hidden and completed assignments have been restored!").setEphemeral(isUserInstall).queue();
             }
 
             case "frequency" -> {
@@ -285,23 +304,28 @@ public class StudySyncBot extends ListenerAdapter {
                 }
                 config.frequencyHours = hours;
                 saveAllServerData();
-                if (config.channelId != null) startScheduler(guildId, config.channelId, hours);
-                event.reply("Got it! I'll post assignments every **" + hours + "** hour(s).").queue();
+                if (isUserInstall) {
+                    startUserScheduler(configKey, userId, hours);
+                } else if (config.channelId != null) {
+                    startScheduler(configKey, config.channelId, hours);
+                }
+                event.reply("Got it! I'll post assignments every **" + hours + "** hour(s).").setEphemeral(isUserInstall).queue();
             }
         }
     }
 
-    static void startScheduler(String guildId, String channelId, int frequencyHours) {
-        ScheduledFuture<?> existing = tasks.get(guildId);
+    // Guild install — posts to a server channel
+    static void startScheduler(String configKey, String channelId, int frequencyHours) {
+        ScheduledFuture<?> existing = tasks.get(configKey);
         if (existing != null) existing.cancel(false);
 
         ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(() -> {
             try {
-                ServerConfig config = serverConfigs.get(guildId);
+                ServerConfig config = serverConfigs.get(configKey);
                 if (config == null || config.feedUrl == null || config.feedUrl.isBlank()) return;
 
                 TextChannel channel = jda.getTextChannelById(channelId);
-                if (channel == null) { System.err.println("Channel not found for guild " + guildId); return; }
+                if (channel == null) { System.err.println("Channel not found: " + channelId); return; }
 
                 List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
                 if (assignments == null || assignments.isEmpty()) {
@@ -309,25 +333,53 @@ public class StudySyncBot extends ListenerAdapter {
                     return;
                 }
 
-                CanvasViewer.Assignment next = assignments.get(0);
-                DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
-                String dueStr  = next.dueDate != null ? next.dueDate.format(fmt) : "No due date";
-                String urgency = getUrgencyTag(next.dueDate);
-
-                String message = "\uD83D\uDCDA **Upcoming Assignment**\n" +
-                        "**" + (next.title != null ? next.title : "Untitled") + "**\n" +
-                        "\uD83D\uDCC5 Due: " + dueStr + "\n" +
-                        (urgency.isEmpty() ? "" : "⚠️ " + urgency);
-
-                channel.sendMessage(message).queue();
-                System.out.println("[" + guildId + "] Posted: " + next.title);
+                channel.sendMessage(buildNextAssignmentMessage(assignments.get(0))).queue();
+                System.out.println("[" + configKey + "] Posted: " + assignments.get(0).title);
 
             } catch (Exception e) {
-                System.err.println("Error posting for guild " + guildId + ": " + e.getMessage());
+                System.err.println("Error posting for " + configKey + ": " + e.getMessage());
             }
         }, 0, frequencyHours, TimeUnit.HOURS);
 
-        tasks.put(guildId, task);
+        tasks.put(configKey, task);
+    }
+
+    // User install — sends a DM to the user
+    static void startUserScheduler(String configKey, String userId, int frequencyHours) {
+        ScheduledFuture<?> existing = tasks.get(configKey);
+        if (existing != null) existing.cancel(false);
+
+        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(() -> {
+            try {
+                ServerConfig config = serverConfigs.get(configKey);
+                if (config == null || config.feedUrl == null || config.feedUrl.isBlank()) return;
+
+                List<CanvasViewer.Assignment> assignments = getUpcomingAssignments(config);
+                if (assignments == null || assignments.isEmpty()) return;
+
+                jda.retrieveUserById(userId).queue(user -> {
+                    user.openPrivateChannel().queue(channel -> {
+                        channel.sendMessage(buildNextAssignmentMessage(assignments.get(0))).queue();
+                        System.out.println("[DM:" + userId + "] Posted: " + assignments.get(0).title);
+                    });
+                });
+
+            } catch (Exception e) {
+                System.err.println("Error DMing user " + userId + ": " + e.getMessage());
+            }
+        }, 0, frequencyHours, TimeUnit.HOURS);
+
+        tasks.put(configKey, task);
+    }
+
+    static String buildNextAssignmentMessage(CanvasViewer.Assignment next) {
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
+        String dueStr  = next.dueDate != null ? next.dueDate.format(fmt) : "No due date";
+        String urgency = getUrgencyTag(next.dueDate);
+        return "\uD83D\uDCDA **Upcoming Assignment**\n" +
+                "**" + (next.title != null ? next.title : "Untitled") + "**\n" +
+                "\uD83D\uDCC5 Due: " + dueStr + "\n" +
+                (urgency.isEmpty() ? "" : "⚠️ " + urgency);
     }
 
     static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
@@ -367,14 +419,16 @@ public class StudySyncBot extends ListenerAdapter {
     }
 
     static class ServerConfig {
-        String feedUrl     = null;
-        String channelId   = null;
-        int frequencyHours = 1;
+        String feedUrl          = null;
+        String channelId        = null;
+        String userId           = null;
+        boolean isUserInstall   = false;
+        int frequencyHours      = 1;
         Set<String> hiddenAssignments = new HashSet<>();
     }
 
-    static ServerConfig getOrCreateConfig(String guildId) {
-        return serverConfigs.computeIfAbsent(guildId, k -> new ServerConfig());
+    static ServerConfig getOrCreateConfig(String key) {
+        return serverConfigs.computeIfAbsent(key, k -> new ServerConfig());
     }
 
     static void saveAllServerData() {
@@ -385,6 +439,8 @@ public class StudySyncBot extends ListenerAdapter {
                 ServerConfig c = entry.getValue();
                 sb.append(id).append(".feedUrl=").append(c.feedUrl != null ? c.feedUrl : "").append("\n");
                 sb.append(id).append(".channelId=").append(c.channelId != null ? c.channelId : "").append("\n");
+                sb.append(id).append(".userId=").append(c.userId != null ? c.userId : "").append("\n");
+                sb.append(id).append(".isUserInstall=").append(c.isUserInstall).append("\n");
                 sb.append(id).append(".frequencyHours=").append(c.frequencyHours).append("\n");
                 sb.append(id).append(".hidden=").append(String.join(",", c.hiddenAssignments)).append("\n");
             }
@@ -406,30 +462,32 @@ public class StudySyncBot extends ListenerAdapter {
                 String value = line.substring(eq + 1).trim();
                 int dot = key.lastIndexOf('.');
                 if (dot == -1) continue;
-                String guildId = key.substring(0, dot);
-                String field   = key.substring(dot + 1);
-                ServerConfig config = getOrCreateConfig(guildId);
+                String configKey = key.substring(0, dot);
+                String field     = key.substring(dot + 1);
+                ServerConfig config = getOrCreateConfig(configKey);
                 switch (field) {
                     case "feedUrl"        -> config.feedUrl        = value.isBlank() ? null : value;
                     case "channelId"      -> config.channelId      = value.isBlank() ? null : value;
+                    case "userId"         -> config.userId         = value.isBlank() ? null : value;
+                    case "isUserInstall"  -> config.isUserInstall  = Boolean.parseBoolean(value);
                     case "frequencyHours" -> config.frequencyHours = value.isBlank() ? 1 : Integer.parseInt(value);
                     case "hidden"         -> { if (!value.isBlank()) config.hiddenAssignments.addAll(Arrays.asList(value.split(","))); }
                 }
             }
-            System.out.println("Loaded data for " + serverConfigs.size() + " server(s).");
+            System.out.println("Loaded data for " + serverConfigs.size() + " config(s).");
         } catch (IOException e) {
             System.err.println("Error loading server data: " + e.getMessage());
         }
     }
 
-    static String getUrgencyTag(LocalDateTime due) {
-        if (due == null) return "";
-        long days = Duration.between(LocalDateTime.now(), due).toDays();
-        if (due.isBefore(LocalDateTime.now())) return "OVERDUE!";
-        if (days == 0) return "Due today!";
-        if (days == 1) return "Due tomorrow!";
-        if (days <= 7) return "Due this week";
-        return "";
+   static String getUrgencyTag(LocalDateTime due) {
+    if (due == null) return "🟢";
+    long days = Duration.between(LocalDateTime.now(), due).toDays();
+    if (due.isBefore(LocalDateTime.now())) return "🔴 OVERDUE!";
+    if (days == 0) return "🔴 Due today!";
+    if (days == 1) return "🟡 Due tomorrow!";
+    if (days <= 7) return "🟡 Due this week";
+    return "🟢 Upcoming";
     }
 
     static int countOccurrences(String text, String target) {
