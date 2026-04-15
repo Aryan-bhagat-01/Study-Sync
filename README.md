@@ -50,6 +50,31 @@ This project uses GitHub Actions for continuous integration. The project is auto
 "/unhide" - restore all hidden assignments
 "/frequency" - set the number of hours between notifications
 
-## Bot Link
-A link to our working bot currently using one of our Canvas APIs.
-https://discord.com/oauth2/authorize?client_id=1488939207983366244
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+Personal App (DMs) Setup
+Open this link in your browser: https://discord.com/oauth2/authorize?client_id=1488939207983366244
+Click Add to my apps
+Click Authorize
+Open Discord and click Find or start a conversation at the top left
+Type StudySync and click on it
+In the chat box type / and you'll see all commands appear
+Click /setup and paste your Canvas iCal URL
+Hit Enter — the bot will confirm and start sending you reminders
+
+Getting your Canvas URL (both methods)
+Log into Canvas
+Click Calendar on the left sidebar
+Scroll to the very bottom left of the page
+Click Calendar Feed
+Copy the entire link
+
+Server Setup
+Open this link in your browser: https://discord.com/oauth2/authorize?client_id=1488939207983366244
+Select your server from the Add to server dropdown
+Click Authorize
+Go to Discord and open the server
+Go to the channel you want assignments posted in
+Type /setup and paste your Canvas iCal URL
+Hit Enter — the bot confirms and starts posting hourly
+
+
