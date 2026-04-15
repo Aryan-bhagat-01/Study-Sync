@@ -76,14 +76,8 @@ public class StudySyncBot extends ListenerAdapter {
     @Override
     public void onSlashCommandInteraction(SlashCommandInteractionEvent event) {
         boolean isUserInstall = event.getGuild() == null;
-        String configKey;
         String userId = event.getUser().getId();
-
-        if (isUserInstall) {
-            configKey = "user_" + userId;
-        } else {
-            configKey = "guild_" + event.getGuild().getId();
-        }
+        String configKey = isUserInstall ? "user_" + userId : "guild_" + event.getGuild().getId();
 
         ServerConfig config = getOrCreateConfig(configKey);
         config.isUserInstall = isUserInstall;
@@ -150,7 +144,6 @@ public class StudySyncBot extends ListenerAdapter {
                 config.channelId = null;
                 config.hiddenAssignments.clear();
                 saveAllServerData();
-
                 ScheduledFuture<?> task = tasks.remove(configKey);
                 if (task != null) task.cancel(false);
                 event.reply("Canvas feed unlinked. The bot will stop posting assignments.").setEphemeral(isUserInstall).queue();
@@ -242,7 +235,7 @@ public class StudySyncBot extends ListenerAdapter {
                         event.getHook().editOriginal("No overdue assignments! \uD83C\uDF89").queue();
                         return;
                     }
-                    event.getHook().editOriginal(buildAssignmentList(overdue, "⚠️ **Overdue Assignments**")).queue();
+                    event.getHook().editOriginal(buildAssignmentList(overdue, "\uD83D\uDD34 **Overdue Assignments**")).queue();
                 } catch (Exception e) {
                     event.getHook().editOriginal("Error fetching assignments: " + e.getMessage()).queue();
                 }
@@ -314,7 +307,6 @@ public class StudySyncBot extends ListenerAdapter {
         }
     }
 
-    // Guild install — posts to a server channel
     static void startScheduler(String configKey, String channelId, int frequencyHours) {
         ScheduledFuture<?> existing = tasks.get(configKey);
         if (existing != null) existing.cancel(false);
@@ -344,7 +336,6 @@ public class StudySyncBot extends ListenerAdapter {
         tasks.put(configKey, task);
     }
 
-    // User install — sends a DM to the user
     static void startUserScheduler(String configKey, String userId, int frequencyHours) {
         ScheduledFuture<?> existing = tasks.get(configKey);
         if (existing != null) existing.cancel(false);
@@ -379,7 +370,7 @@ public class StudySyncBot extends ListenerAdapter {
         return "\uD83D\uDCDA **Upcoming Assignment**\n" +
                 "**" + (next.title != null ? next.title : "Untitled") + "**\n" +
                 "\uD83D\uDCC5 Due: " + dueStr + "\n" +
-                (urgency.isEmpty() ? "" : "⚠️ " + urgency);
+                urgency;
     }
 
     static List<CanvasViewer.Assignment> getVisibleAssignments(ServerConfig config) throws Exception {
@@ -409,8 +400,7 @@ public class StudySyncBot extends ListenerAdapter {
             String due    = a.dueDate != null ? a.dueDate.format(fmt) : "No due date";
             String urgent = getUrgencyTag(a.dueDate);
             sb.append("**").append(num++).append(". ").append(title).append("**\n");
-            sb.append("\uD83D\uDCC5 ").append(due);
-            if (!urgent.isEmpty()) sb.append("  ⚠️ ").append(urgent);
+            sb.append("\uD83D\uDCC5 ").append(due).append("  ").append(urgent);
             sb.append("\n");
             sb.append("─────────────────────────────────\n");
             if (sb.length() > 1800) { sb.append("*(and more...)*\n"); break; }
@@ -419,11 +409,11 @@ public class StudySyncBot extends ListenerAdapter {
     }
 
     static class ServerConfig {
-        String feedUrl          = null;
-        String channelId        = null;
-        String userId           = null;
-        boolean isUserInstall   = false;
-        int frequencyHours      = 1;
+        String feedUrl        = null;
+        String channelId      = null;
+        String userId         = null;
+        boolean isUserInstall = false;
+        int frequencyHours    = 1;
         Set<String> hiddenAssignments = new HashSet<>();
     }
 
@@ -480,14 +470,14 @@ public class StudySyncBot extends ListenerAdapter {
         }
     }
 
-   static String getUrgencyTag(LocalDateTime due) {
-    if (due == null) return "🟢";
-    long days = Duration.between(LocalDateTime.now(), due).toDays();
-    if (due.isBefore(LocalDateTime.now())) return "🔴 OVERDUE!";
-    if (days == 0) return "🔴 Due today!";
-    if (days == 1) return "🟡 Due tomorrow!";
-    if (days <= 7) return "🟡 Due this week";
-    return "🟢 Upcoming";
+    static String getUrgencyTag(LocalDateTime due) {
+        if (due == null) return "\uD83D\uDFE2";
+        long days = Duration.between(LocalDateTime.now(), due).toDays();
+        if (due.isBefore(LocalDateTime.now())) return "\uD83D\uDD34 OVERDUE!";
+        if (days == 0) return "\uD83D\uDD34 Due today!";
+        if (days == 1) return "\uD83D\uDFE1 Due tomorrow!";
+        if (days <= 7) return "\uD83D\uDFE1 Due this week";
+        return "\uD83D\uDFE2 Upcoming";
     }
 
     static int countOccurrences(String text, String target) {
