@@ -16,7 +16,7 @@ public class StudySyncTests {
         Files.deleteIfExists(Paths.get(StudySyncBot.DATA_FILE));
     }
 
-    // ── CanvasSetup Tests ─────────────────────────────────────────────────────
+    // ── CanvasSetup Tests 
 
     @Test
     void testExtractBaseUrlStandard() {
@@ -48,8 +48,7 @@ public class StudySyncTests {
         assertTrue(content.contains("CANVAS_URL=https://uml.instructure.com"));
     }
 
-    // ── CanvasViewer Tests ────────────────────────────────────────────────────
-
+    // ── CanvasViewer Tests 
     @Test
     void testCleanDescriptionLinks() {
         String raw = "Submit at: https://canvas.edu/test now";
@@ -111,7 +110,7 @@ public class StudySyncTests {
         assertEquals("[THIS WEEK]", CanvasViewer.getUrgencyTag(now.plusDays(4), now));
     }
 
-    // ── StudySyncBot Tests ────────────────────────────────────────────────────
+    // ── StudySyncBot Tests 
 
     @Test
     void testGetOrCreateConfig() {
