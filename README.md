@@ -34,11 +34,11 @@ Run unit tests:
 mvn test
 
 ## Data Collection
-Creates a graph that shows the time it takes to for the bot to validate a url and connect to the Canvas API: 
+**Creates a graph that shows the time it takes to for the bot to validate a url and connect to the Canvas API: **
 
 mvn test -Dtest=LateSubmissions
 
-Creates a graph that shows the amount of late submissions before and after using Study Sync:
+**Creates a graph that shows the amount of late submissions before and after using Study Sync:**
 
 javac LateSubmissions.java
 
