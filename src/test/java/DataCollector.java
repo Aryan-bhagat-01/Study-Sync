@@ -48,7 +48,7 @@ public class DataCollector {
             "  <rect width='%d' height='%d' fill='#f8f9fa'/>\n", svgW, svgH));
         s.append(String.format(
             "  <text x='%d' y='30' font-family='Arial' font-size='15' font-weight='bold' " +
-            "text-anchor='middle' fill='#222'>Bot to Canvas API Connection Time</text>\n",
+            "text-anchor='middle' fill='#222'>Study Sync - Bot to Canvas API Connection Time</text>\n",
             svgW / 2));
         s.append(String.format(
             "  <rect x='%d' y='%d' width='%d' height='%d' fill='#ffffff' stroke='#ccc' stroke-width='1'/>\n",
