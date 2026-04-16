@@ -33,21 +33,27 @@ Run unit tests:
 
 mvn test
 
-## Statistic Analysis (generates figures)
-javac StudySyncData.java
+## Data Collection
+This will run a test that measures the time it takes to for the bot to validate a url and connect to the Canvas API. The figure can be found in the figures folder.
 
-java StudySyncData.java
+mvn test -Dtest=DataCollector
 
 ## Continuous Integration
 This project uses GitHub Actions for continuous integration. The project is automatically built and tested on each push to the repository. You can view CI results in the "Actions" tab on GitHub.
 
 ## Bot Commands
 "/setup" - to link a user's Canvas calendar to the bot
+
 "/unlink" - to unlink a user's calendar
+
 "/assignments" - to show all upcoming assignments and their number
+
 "/today" - for what assignments are due today
+
 "/edit" - specify an assignment id to hide from the bot
+
 "/unhide" - restore all hidden assignments
+
 "/frequency" - set the number of hours between notifications
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
