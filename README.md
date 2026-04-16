@@ -34,11 +34,11 @@ Run unit tests:
 mvn test
 
 ## Data Collection
-This will run a test that measures the time it takes to for the bot to validate a url and connect to the Canvas API. The figure can be found in the figures folder.
-
-Run data collector:
+This will run a test that measures the time it takes to for the bot to validate a url and connect to the Canvas API: 
 
 mvn test -Dtest=DataCollector
+
+The figure can be found in the figures folder.
 
 ## Continuous Integration
 This project uses GitHub Actions for continuous integration. The project is automatically built and tested on each push to the repository. You can view CI results in the "Actions" tab on GitHub.
