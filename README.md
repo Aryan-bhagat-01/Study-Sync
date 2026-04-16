@@ -36,6 +36,8 @@ mvn test
 ## Data Collection
 This will run a test that measures the time it takes to for the bot to validate a url and connect to the Canvas API. The figure can be found in the figures folder.
 
+Run data collector:
+
 mvn test -Dtest=DataCollector
 
 ## Continuous Integration
