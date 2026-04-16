@@ -38,12 +38,11 @@ Creates a graph that shows the time it takes to for the bot to validate a url an
 
 mvn test -Dtest=LateSubmissions
 
+
 Creates a graph that shows the amount of late submissions before and after using Study Sync:
 
 javac LateSubmissions.java
 java LateSubmissions.java
-
-Creates graph
 
 ## Continuous Integration
 This project uses GitHub Actions for continuous integration. The project is automatically built and tested on each push to the repository. You can view CI results in the "Actions" tab on GitHub.
@@ -53,7 +52,8 @@ This project uses GitHub Actions for continuous integration. The project is auto
 
 "/unlink" - Remove the linked Canvas iCal feed from the bot.
 
-"/assignments" - By default show the first ten upcoming assignments with just /assignments, their dates and their numbers. Ex: /assignments 5 will show the 5 upcoming assignments
+"/assignments" - By default show the first ten upcoming assignments with just /assignments, their dates and their numbers. 
+Ex: /assignments 5 will show the 5 upcoming assignments
 
 "/today" - Show assignments and assignment dates due by midnight.
 
@@ -61,13 +61,15 @@ This project uses GitHub Actions for continuous integration. The project is auto
 
 "/overdue" - Show overdue assignments.
 
-"/complete <number>" - Mark an assignment as complete by what number that assignment is in the list. Ex: /complete <4> (marks the 4th assignment on the list as complete
+"/complete <number>" - Mark an assignment as complete by what number that assignment is in the list. 
+Ex: /complete <4> (marks the 4th assignment on the list as complete
 
 "/delete <number>" - Hide an assignment by number. Ex: /delete 4 (deletes 4th assignment on the list
 
 "/unhide" - Restore all hidden and completed assignments.
 
-"/frequency <hours>" - Change how often the bot posts assignment reminders in hours. Ex: /frequency <4> (Notifies about the most upcoming assignment every 4 hours)
+"/frequency <hours>" - Change how often the bot posts assignment reminders in hours. 
+Ex: /frequency <4> (Notifies about the most upcoming assignment every 4 hours)
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
 Personal App (DMs) Setup
