@@ -34,7 +34,7 @@ Run unit tests:
 mvn test
 
 ## Data Collection
-**Creates a graph that shows the time it takes to for the bot to validate a url and connect to the Canvas API: **
+**Creates a graph that shows the time it takes to for the bot to validate a url and connect to the Canvas API:**
 
 mvn test -Dtest=LateSubmissions
 
