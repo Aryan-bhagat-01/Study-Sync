@@ -41,6 +41,7 @@ mvn test -Dtest=LateSubmissions
 Creates a graph that shows the amount of late submissions before and after using Study Sync:
 
 javac LateSubmissions.java
+
 java LateSubmissions.java
 
 ## Continuous Integration
