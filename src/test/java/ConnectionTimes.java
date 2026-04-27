@@ -21,7 +21,7 @@ public class ConnectionTimes {
         }
 
         generateSvg(svgFile, totalMs);
-        System.out.println("\nFigure generated: " + svgFile + "\n");
+        System.out.println("\nFigure generated in: " + svgFile + "\n");
     }
 
     private static void generateSvg(String path, long[] totalMs) throws IOException {
