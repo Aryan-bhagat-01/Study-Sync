@@ -46,7 +46,7 @@ mvn test -Dtest=StudentSubmissions
 This project uses GitHub Actions for continuous integration. The project is automatically built and tested on each push to the repository. You can view CI results in the "Actions" tab on GitHub.
 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------
-## Study Sync Setup on Discord
+## Bot Setup on Discord (through Direct Message)
 Open this link in your browser: https://discord.com/oauth2/authorize?client_id=1488939207983366244
 
 Click Add to my apps
@@ -57,24 +57,13 @@ Open Discord and click Find or start a conversation at the top left
 
 Type StudySync and click on it
 
-In the chat box type / and you'll see all commands appear
+In the chat box type "/" and you'll see all commands appear
 
-Click /setup and paste your Canvas iCal URL
+Click "/setup" and paste your Canvas iCal URL
 
 Hit Enter — the bot will confirm and start sending you reminders
 
-## Getting your Canvas URL
-Log into Canvas
-
-Click Calendar on the left sidebar
-
-Scroll to the very bottom left of the page
-
-Click Calendar Feed
-
-Copy the entire link
-
-## Server Setup
+## Bot Setup on Discord (through Server)
 Open this link in your browser: https://discord.com/oauth2/authorize?client_id=1488939207983366244
 
 Select your server from the Add to Server dropdown
@@ -88,6 +77,17 @@ Go to the channel you want assignments posted in
 Type /setup and paste your Canvas iCal URL
 
 Hit Enter — the bot confirms and starts posting hourly
+
+## Getting your Canvas URL
+Log into Canvas
+
+Click Calendar on the left sidebar
+
+Scroll to the very bottom left of the page
+
+Click Calendar Feed
+
+Copy the entire link
 
 ## Bot Commands
 "/setup" - Link a user’s Canvas iCal feed URL to the bot.
