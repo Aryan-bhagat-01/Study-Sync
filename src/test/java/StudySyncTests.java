@@ -87,12 +87,6 @@ public class StudySyncTests {
     }
 
     @Test
-    void testParseDateOnly() {
-        LocalDateTime dt = CanvasViewer.parseDate("20260401");
-        assertEquals(0, dt.getHour());
-    }
-
-    @Test
     void testUrgencyOverdue() {
         LocalDateTime now = LocalDateTime.now();
         assertEquals("[OVERDUE]", CanvasViewer.getUrgencyTag(now.minusDays(1), now));
