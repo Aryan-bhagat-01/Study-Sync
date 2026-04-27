@@ -33,16 +33,14 @@ Run unit tests:
 
 mvn test
 
-## Data Collection
-**Creates a graph that shows the time it takes to for the bot to validate a url and connect to the Canvas API:**
+## Data Analysis
+Creates Bot to Canvas API Connection Time graph:
 
-mvn test -Dtest=LateSubmissions
+mvn test -Dtest=ConnectionTimes
 
-**Creates a graph that shows the amount of late submissions before and after using Study Sync:**
+Creates Before and After Study Sync - On-Time and Late Submissions graphs:
 
-javac LateSubmissions.java
-
-java LateSubmissions.java
+mvn test -Dtest=StudentSubmissions
 
 ## Continuous Integration
 This project uses GitHub Actions for continuous integration. The project is automatically built and tested on each push to the repository. You can view CI results in the "Actions" tab on GitHub.
@@ -60,7 +58,7 @@ This project uses GitHub Actions for continuous integration. The project is auto
 
 "/overdue" - Show overdue assignments.
 
-"/complete <number>" - Mark an assignment as complete by what number that assignment is in the list.                                        Ex: /complete <4> marks the 4th assignment on the list as complete.
+"/complete <number>" - Mark an assignment as complete using its corresponding number given by the /assignments list.                          Ex: /complete <4> marks the 4th assignment on the list as complete.
 
 "/delete <number>" - Hide an assignment by number.                                                                                             Ex: /delete 4 deletes 4th assignment on the list
 
