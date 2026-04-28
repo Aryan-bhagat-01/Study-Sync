@@ -6,7 +6,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class StudySyncTests {
+public class UnitTests {
 
     private static final String ENV_FILE = ".env";
 
